@@ -3,6 +3,7 @@
 RUN apt-get update
 RUN apt-get install python3 python3-pip -y
 RUN pip install mkdocs-material --break-system-packages
+RUN apt-get clean
 
 USER $APP_UID
 WORKDIR /app
