@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.RegularExpressions;
 using DocmostExporter.Http.Requests;
 using DocmostExporter.Http.Responses;
@@ -7,49 +8,48 @@ namespace DocmostExporter;
 
 public class DocmostService
 {
-    private string AccessToken;
-
     private HttpApiClient ApiClient;
+    private CookieContainer CookieContainer = new();
 
-    public DocmostService(string baseUrl, HttpClientHandler? httpClientHandler = null)
+    public DocmostService(string baseUrl)
     {
-        HttpClient httpClient;
+        var httpsProxy = Environment.GetEnvironmentVariable("HTTPS_PROXY");
 
-        if (httpClientHandler == null)
-            httpClient = new();
-        else
-            httpClient = new HttpClient(httpClientHandler);
+        var httpClientHandler = new HttpClientHandler()
+        {
+            CookieContainer = CookieContainer,
+            UseCookies = true
+        };
 
-        httpClient.BaseAddress = new Uri(baseUrl);
+        if (!string.IsNullOrEmpty(httpsProxy))
+        {
+            Console.WriteLine(httpsProxy);
+            
+            httpClientHandler.UseProxy = true;
+            httpClientHandler.Proxy = new WebProxy(
+                new Uri(httpsProxy)
+            );
+        }
+
+        var httpClient = new HttpClient(httpClientHandler)
+        {
+            BaseAddress = new Uri(baseUrl),
+        };
 
         ApiClient = new(httpClient);
-
-        ApiClient.OnConfigureRequest += message =>
-        {
-            if (string.IsNullOrEmpty(AccessToken))
-                return Task.CompletedTask;
-
-            message.Headers.Add("Authorization", $"Bearer {AccessToken}");
-
-            return Task.CompletedTask;
-        };
     }
 
     public async Task Login(string email, string password)
     {
-        var response = await ApiClient.PostJson<BaseResponse<LoginResponse>>("api/auth/login", new LoginRequest()
+        var response = await ApiClient.Post("api/auth/login", new LoginRequest()
         {
             Email = email,
             Password = password
         });
-
-        response.HandleError();
-
-        AccessToken = response.Data.Tokens.AccessToken;
     }
 
     public async Task<Stream> FetchAsset(string link)
-     => await ApiClient.GetStream("api" + link);
+        => await ApiClient.GetStream("api" + link);
 
     public async Task Export(string slug, string location)
     {
@@ -136,7 +136,7 @@ public class DocmostService
     public async Task<SidebarResponse[]> LoadSidebar(string spaceId)
     {
         var result = new List<SidebarResponse>();
-        
+
         var firstLevelItems = await RetrieveAllItems(
             async page => await ApiClient.PostJson<BaseResponse<ItemsResponse<SidebarResponse>>>(
                 "api/pages/sidebar-pages",
@@ -152,7 +152,7 @@ public class DocmostService
 
         foreach (var firstLevelItem in firstLevelItems)
         {
-            if(!firstLevelItem.HasChildren)
+            if (!firstLevelItem.HasChildren)
                 continue;
 
             await RetrieveSidebarSubItems(firstLevelItem, spaceId, result);
@@ -176,10 +176,10 @@ public class DocmostService
         );
 
         result.AddRange(items);
-        
+
         foreach (var item in items)
         {
-            if(!item.HasChildren)
+            if (!item.HasChildren)
                 continue;
 
             await RetrieveSidebarSubItems(item, spaceId, result);

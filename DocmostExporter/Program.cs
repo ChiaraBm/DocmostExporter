@@ -1,45 +1,42 @@
 ﻿using System.Net;
 using DocmostExporter;
 using DocmostExporter.MkDocs;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using MoonCore.EnvConfiguration;
 using MoonCore.Extensions;
+using MoonCore.Helpers;
 using MoonCore.Services;
 
-var config = new ConfigService<Configuration>("config.json").Get();
+var configurationBuilder = new ConfigurationBuilder();
+
+configurationBuilder.AddJsonFile(
+    PathBuilder.Dir(Directory.GetCurrentDirectory(), "config.json"),
+    optional: true
+);
+
+configurationBuilder.AddEnvironmentVariables(prefix: "EXPORTER_", separator: "_");
+
+var configurationRoot = configurationBuilder.Build();
+var configuration = configurationRoot.Get<Configuration>()!;
 
 var loggerFactory = new LoggerFactory();
 
-loggerFactory.AddMoonCore(configuration =>
-{
-    configuration.Console.Enable = true;
-    configuration.Console.EnableAnsiMode = true;
-});
+loggerFactory.AddMoonCore();
 
 var logger = loggerFactory.CreateLogger<Program>();
 
 logger.LogInformation("Starting Docmost Exporter");
+logger.LogInformation("URL: {url}", configuration.Url);
 
-HttpClientHandler? handler = null;
+var docmostService = new DocmostService(configuration.Url);
 
-if (config.UseHttpProxy)
-{
-    handler = new HttpClientHandler()
-    {
-        Proxy = new WebProxy(config.ProxyUrl)
-        {
-            Credentials = new NetworkCredential(config.ProxyUsername, config.ProxyPassword)
-        }
-    };
-}
-
-var docmostService = new DocmostService(config.DocmostUrl, handler);
-
-await docmostService.Login(config.DocmostEmail, config.DocmostPassword);
+await docmostService.Login(configuration.Email, configuration.Password);
 
 //await docmostService.Export("general", "ExportTest");
 
 var mkDocsExporter = new MkDocsExporter(docmostService, logger);
 
-await mkDocsExporter.Export(config.SpaceSlug, config.Storage);
+await mkDocsExporter.Export(configuration.SpaceSlug, configuration.Storage);
 
 logger.LogInformation("Successfully exported :)");
